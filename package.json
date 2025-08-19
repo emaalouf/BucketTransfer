@@ -1,0 +1,34 @@
+{
+  "name": "bucket-transfer-tool",
+  "version": "1.0.0",
+  "description": "Node.js tool to transfer files from DigitalOcean Spaces to AWS S3",
+  "main": "transfer.js",
+  "scripts": {
+    "start": "node transfer.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop bucket-transfer",
+    "pm2:restart": "pm2 restart bucket-transfer",
+    "pm2:delete": "pm2 delete bucket-transfer",
+    "pm2:logs": "pm2 logs bucket-transfer",
+    "pm2:monit": "pm2 monit",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "digitalocean",
+    "spaces",
+    "aws",
+    "s3",
+    "transfer",
+    "migration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0",
+    "aws-sdk": "^2.0.0",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "pm2": "^5.0.0"
+  }
+}
