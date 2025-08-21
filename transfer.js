@@ -1,6 +1,7 @@
 require('dotenv').config();
 const AWS = require('aws-sdk');
-const { S3Client, PutObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+const fs = require('fs');
 
 class BucketTransfer {
     constructor() {
@@ -135,6 +136,38 @@ class BucketTransfer {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
+    async listS3Objects() {
+        console.log(`Listing all objects in AWS S3 bucket: ${this.awsS3Bucket}`);
+        const allObjects = [];
+        let continuationToken;
+
+        do {
+            const params = {
+                Bucket: this.awsS3Bucket,
+                MaxKeys: this.batchSize,
+                ContinuationToken: continuationToken
+            };
+
+            try {
+                const command = new ListObjectsV2Command(params);
+                const response = await this.awsS3Client.send(command);
+                
+                if (response.Contents) {
+                    allObjects.push(...response.Contents);
+                    console.log(`Found ${response.Contents.length} objects in this batch. Total so far: ${allObjects.length}`);
+                }
+
+                continuationToken = response.NextContinuationToken;
+            } catch (error) {
+                console.error('Error listing S3 objects:', error);
+                throw error;
+            }
+        } while (continuationToken);
+
+        console.log(`Total S3 objects found: ${allObjects.length}`);
+        return allObjects;
+    }
+
     printStats() {
         const duration = Date.now() - this.stats.startTime;
         const durationSeconds = Math.floor(duration / 1000);
@@ -147,6 +180,60 @@ class BucketTransfer {
         console.log(`Errors: ${this.stats.errors}`);
         console.log(`Duration: ${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`);
         console.log(`Rate: ${rate.toFixed(2)} objects/minute`);
+    }
+
+    exportToCSV(objects, source, filename) {
+        const csvHeader = 'Index,Key,Size (Bytes),Size (Formatted),Last Modified,ETag\n';
+        
+        const csvRows = objects.map((obj, index) => {
+            const key = `"${obj.Key.replace(/"/g, '""')}"`;  // Escape quotes in filenames
+            const sizeBytes = obj.Size || 0;
+            const sizeFormatted = this.formatBytes(sizeBytes);
+            const lastModified = obj.LastModified ? obj.LastModified.toISOString() : '';
+            const etag = (obj.ETag || '').replace(/"/g, '');  // Remove quotes from ETag
+            
+            return `${index + 1},${key},${sizeBytes},"${sizeFormatted}","${lastModified}","${etag}"`;
+        });
+
+        const csvContent = csvHeader + csvRows.join('\n');
+        
+        fs.writeFileSync(filename, csvContent, 'utf8');
+        console.log(`\n✓ Exported ${objects.length} objects to ${filename}`);
+    }
+
+    async listOnly(source = 'spaces', exportCsv = false) {
+        try {
+            console.log(`Listing objects in ${source === 'spaces' ? 'DigitalOcean Spaces' : 'AWS S3'}...`);
+            
+            const allObjects = source === 'spaces' ? 
+                await this.listAllObjects() : 
+                await this.listS3Objects();
+            
+            if (allObjects.length === 0) {
+                console.log('No objects found.');
+                return allObjects;
+            }
+
+            if (exportCsv) {
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const bucketName = source === 'spaces' ? this.doSpacesBucket : this.awsS3Bucket;
+                const filename = `${bucketName}_${source}_objects_${timestamp}.csv`;
+                this.exportToCSV(allObjects, source, filename);
+            } else {
+                console.log('\n=== Object List ===');
+                allObjects.forEach((obj, index) => {
+                    const size = this.formatBytes(obj.Size);
+                    const lastModified = obj.LastModified.toISOString();
+                    console.log(`${index + 1}. ${obj.Key} (${size}) - Modified: ${lastModified}`);
+                });
+            }
+
+            return allObjects;
+
+        } catch (error) {
+            console.error('Listing failed:', error);
+            throw error;
+        }
     }
 
     async start() {
@@ -216,7 +303,17 @@ function validateEnvironment() {
 if (require.main === module) {
     validateEnvironment();
     const transfer = new BucketTransfer();
-    transfer.start().catch(console.error);
+    
+    const args = process.argv.slice(2);
+    const command = args[0];
+    
+    if (command === 'list') {
+        const source = args[1] === 's3' ? 's3' : 'spaces';
+        const exportCsv = args.includes('--csv') || args.includes('-c');
+        transfer.listOnly(source, exportCsv).catch(console.error);
+    } else {
+        transfer.start().catch(console.error);
+    }
 }
 
 module.exports = BucketTransfer;
