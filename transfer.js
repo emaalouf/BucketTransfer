@@ -111,8 +111,8 @@ class BucketTransfer {
 
         } catch (error) {
             this.stats.errors++;
-            console.error(`✗ Error transferring ${key}:`, error.message);
-            return { success: false, error: error.message };
+            console.error(`✗ Error transferring ${key}:`, error);
+            return { success: false, error: error };
         }
     }
 
