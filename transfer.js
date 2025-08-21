@@ -86,8 +86,14 @@ class BucketTransfer {
         const key = object.Key;
         
         try {
+            // Skip directory markers (keys ending with /)
+            if (key.endsWith('/')) {
+                console.log(`Skipping directory marker: ${key}`);
+                this.stats.skipped++;
+                return { success: true, skipped: true };
+            }
+
             if (await this.objectExistsInS3(key)) {
-                console.log(`Skipping ${key} - already exists in S3`);
                 this.stats.skipped++;
                 return { success: true, skipped: true };
             }
@@ -111,7 +117,7 @@ class BucketTransfer {
 
         } catch (error) {
             this.stats.errors++;
-            console.error(`✗ Error transferring ${key}:`, error);
+            console.error(`✗ Error transferring ${key}:`, error.message);
             return { success: false, error: error };
         }
     }
@@ -161,12 +167,19 @@ class BucketTransfer {
 
             console.log('\nStarting transfer...\n');
 
+            let processedCount = 0;
             for (let i = 0; i < allObjects.length; i += this.maxConcurrent) {
                 const batch = allObjects.slice(i, i + this.maxConcurrent);
                 await this.transferBatch(batch);
                 
-                const progress = ((i + batch.length) / allObjects.length * 100).toFixed(1);
-                console.log(`Progress: ${progress}% (${i + batch.length}/${allObjects.length})`);
+                processedCount += batch.length;
+                const progress = (processedCount / allObjects.length * 100).toFixed(1);
+                console.log(`Progress: ${progress}% (${processedCount}/${allObjects.length}) - Transferred: ${this.stats.transferred}, Skipped: ${this.stats.skipped}, Errors: ${this.stats.errors}`);
+                
+                // Add small delay to prevent overwhelming the APIs
+                if (i + this.maxConcurrent < allObjects.length) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
             }
 
             console.log('\nTransfer completed!');
